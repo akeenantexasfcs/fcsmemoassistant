@@ -13,11 +13,7 @@ from PIL import Image
 import io
 import docx
 import os
-from dotenv import load_dotenv
 import time
-
-# Load environment variables
-load_dotenv()
 
 # Set up configuration
 OPEN_AI_API_KEY = os.getenv("OPEN_AI_API_KEY")
