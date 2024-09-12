@@ -32,92 +32,7 @@ s3 = boto3.client('s3',
                   aws_secret_access_key=AWS_SECRET_KEY,
                   region_name=AWS_REGION)
 
-def process_pdf(file):
-    try:
-        pdf_reader = PdfReader(file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-        return text
-    except Exception as e:
-        st.error(f"Error processing PDF: {str(e)}")
-        return None
-
-def process_excel(file):
-    try:
-        workbook = load_workbook(file)
-        sheet = workbook.active
-        data = []
-        for row in sheet.iter_rows(values_only=True):
-            data.append(row)
-        return str(data)  # Convert to string for simplicity
-    except Exception as e:
-        st.error(f"Error processing Excel file: {str(e)}")
-        return None
-
-def process_supplemental(file):
-    if file is None:
-        return ""
-    try:
-        if file.type == "application/pdf":
-            return process_pdf(file)
-        elif file.type in ["image/jpeg", "image/jpg"]:
-            image = Image.open(file)
-            # Placeholder for image processing - you might want to implement OCR here
-            return "Image content placeholder"
-        else:
-            return "Unsupported file type"
-    except Exception as e:
-        st.error(f"Error processing supplemental file: {str(e)}")
-        return None
-
-def generate_memo(term_sheet_text, pricing_data, supplemental_text):
-    try:
-        thread = client.beta.threads.create()
-        
-        client.beta.threads.messages.create(
-            thread_id=thread.id,
-            role="user",
-            content=f"Term Sheet: {term_sheet_text}\n\nPricing Data: {pricing_data}\n\nSupplemental Info: {supplemental_text}"
-        )
-        
-        run = client.beta.threads.runs.create(
-            thread_id=thread.id,
-            assistant_id=ASSISTANT_ID,
-            instructions="Please write a memo based on the provided information."
-        )
-        
-        while True:
-            run_status = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
-            if run_status.status == 'completed':
-                break
-            time.sleep(1)
-        
-        messages = client.beta.threads.messages.list(thread_id=thread.id)
-        return messages.data[0].content[0].text.value
-    except Exception as e:
-        st.error(f"Error generating memo: {str(e)}")
-        return None
-
-def create_word_document(memo_text):
-    try:
-        doc = docx.Document()
-        doc.add_paragraph(memo_text)
-        bio = io.BytesIO()
-        doc.save(bio)
-        return bio.getvalue()
-    except Exception as e:
-        st.error(f"Error creating Word document: {str(e)}")
-        return None
-
-def save_to_s3(doc_bytes):
-    try:
-        filename = f"memo_{int(time.time())}.docx"
-        s3.put_object(Bucket=S3_BUCKET_NAME, Key=filename, Body=doc_bytes)
-        return f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{filename}"
-    except Exception as e:
-        st.error(f"Error saving to S3: {str(e)}")
-        return None
+# ... (keep all the processing functions as they were) ...
 
 def main():
     st.title("AI Memo Writer")
@@ -125,23 +40,21 @@ def main():
     # Initialize session state
     if 'stage' not in st.session_state:
         st.session_state.stage = 'initial'
-
+    
     if st.session_state.stage == 'initial':
         if st.button("Commence"):
             st.session_state.stage = 'upload'
-            st.experimental_rerun()
-
-    elif st.session_state.stage == 'upload':
-        st.session_state.term_sheet = st.file_uploader("Upload Term Sheet (PDF)", type="pdf")
-        st.session_state.pricing_table = st.file_uploader("Upload Pricing Table (XLSX)", type="xlsx")
-        st.session_state.supplemental = st.file_uploader("Upload Supplemental Document (Optional)", type=["pdf", "jpg", "jpeg"])
+    
+    if st.session_state.stage == 'upload':
+        st.session_state.term_sheet = st.file_uploader("Upload Term Sheet (PDF)", type="pdf", key="term_sheet")
+        st.session_state.pricing_table = st.file_uploader("Upload Pricing Table (XLSX)", type="xlsx", key="pricing_table")
+        st.session_state.supplemental = st.file_uploader("Upload Supplemental Document (Optional)", type=["pdf", "jpg", "jpeg"], key="supplemental")
         
         if st.session_state.term_sheet and st.session_state.pricing_table:
             if st.button("Generate Memo"):
                 st.session_state.stage = 'generate'
-                st.experimental_rerun()
-
-    elif st.session_state.stage == 'generate':
+    
+    if st.session_state.stage == 'generate':
         with st.spinner("Processing files and generating memo..."):
             term_sheet_text = process_pdf(st.session_state.term_sheet)
             pricing_data = process_excel(st.session_state.pricing_table)
@@ -170,7 +83,10 @@ def main():
         
         if st.button("Start Over"):
             st.session_state.stage = 'initial'
-            st.experimental_rerun()
+            # Clear the uploaded files
+            st.session_state.term_sheet = None
+            st.session_state.pricing_table = None
+            st.session_state.supplemental = None
 
 if __name__ == "__main__":
     main()
