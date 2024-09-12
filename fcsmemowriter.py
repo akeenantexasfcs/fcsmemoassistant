@@ -34,6 +34,18 @@ s3 = boto3.client('s3',
 
 # ... (keep all the processing functions as they were) ...
 
+def update_stage():
+    if st.session_state.term_sheet is not None and st.session_state.pricing_table is not None:
+        st.session_state.stage = 'ready'
+    else:
+        st.session_state.stage = 'upload'
+
+def reset_state():
+    st.session_state.stage = 'initial'
+    st.session_state.term_sheet = None
+    st.session_state.pricing_table = None
+    st.session_state.supplemental = None
+
 def main():
     st.title("AI Memo Writer")
     
@@ -45,12 +57,12 @@ def main():
         if st.button("Commence"):
             st.session_state.stage = 'upload'
     
-    if st.session_state.stage == 'upload':
-        st.session_state.term_sheet = st.file_uploader("Upload Term Sheet (PDF)", type="pdf", key="term_sheet")
-        st.session_state.pricing_table = st.file_uploader("Upload Pricing Table (XLSX)", type="xlsx", key="pricing_table")
-        st.session_state.supplemental = st.file_uploader("Upload Supplemental Document (Optional)", type=["pdf", "jpg", "jpeg"], key="supplemental")
+    if st.session_state.stage in ['upload', 'ready']:
+        st.file_uploader("Upload Term Sheet (PDF)", type="pdf", key="term_sheet", on_change=update_stage)
+        st.file_uploader("Upload Pricing Table (XLSX)", type="xlsx", key="pricing_table", on_change=update_stage)
+        st.file_uploader("Upload Supplemental Document (Optional)", type=["pdf", "jpg", "jpeg"], key="supplemental")
         
-        if st.session_state.term_sheet and st.session_state.pricing_table:
+        if st.session_state.stage == 'ready':
             if st.button("Generate Memo"):
                 st.session_state.stage = 'generate'
     
@@ -82,11 +94,7 @@ def main():
                 st.error("Failed to process input files.")
         
         if st.button("Start Over"):
-            st.session_state.stage = 'initial'
-            # Clear the uploaded files
-            st.session_state.term_sheet = None
-            st.session_state.pricing_table = None
-            st.session_state.supplemental = None
+            reset_state()
 
 if __name__ == "__main__":
     main()
