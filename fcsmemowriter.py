@@ -16,7 +16,7 @@ import os
 import time
 
 # Load environment variables (you should set these up in your environment)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_key = os.getenv("OPEN_AI_API_KEY")  # Updated variable name
 ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
