@@ -122,38 +122,55 @@ def save_to_s3(doc_bytes):
 def main():
     st.title("AI Memo Writer")
     
-    if st.button("Commence"):
-        term_sheet = st.file_uploader("Upload Term Sheet (PDF)", type="pdf")
-        pricing_table = st.file_uploader("Upload Pricing Table (XLSX)", type="xlsx")
-        supplemental = st.file_uploader("Upload Supplemental Document (Optional)", type=["pdf", "jpg", "jpeg"])
+    # Initialize session state
+    if 'stage' not in st.session_state:
+        st.session_state.stage = 'initial'
+
+    if st.session_state.stage == 'initial':
+        if st.button("Commence"):
+            st.session_state.stage = 'upload'
+            st.experimental_rerun()
+
+    elif st.session_state.stage == 'upload':
+        st.session_state.term_sheet = st.file_uploader("Upload Term Sheet (PDF)", type="pdf")
+        st.session_state.pricing_table = st.file_uploader("Upload Pricing Table (XLSX)", type="xlsx")
+        st.session_state.supplemental = st.file_uploader("Upload Supplemental Document (Optional)", type=["pdf", "jpg", "jpeg"])
         
-        if term_sheet and pricing_table:
+        if st.session_state.term_sheet and st.session_state.pricing_table:
             if st.button("Generate Memo"):
-                with st.spinner("Processing files and generating memo..."):
-                    term_sheet_text = process_pdf(term_sheet)
-                    pricing_data = process_excel(pricing_table)
-                    supplemental_text = process_supplemental(supplemental)
+                st.session_state.stage = 'generate'
+                st.experimental_rerun()
+
+    elif st.session_state.stage == 'generate':
+        with st.spinner("Processing files and generating memo..."):
+            term_sheet_text = process_pdf(st.session_state.term_sheet)
+            pricing_data = process_excel(st.session_state.pricing_table)
+            supplemental_text = process_supplemental(st.session_state.supplemental)
+            
+            if term_sheet_text and pricing_data:
+                memo_text = generate_memo(term_sheet_text, pricing_data, supplemental_text)
+                
+                if memo_text:
+                    doc_bytes = create_word_document(memo_text)
                     
-                    if term_sheet_text and pricing_data:
-                        memo_text = generate_memo(term_sheet_text, pricing_data, supplemental_text)
+                    if doc_bytes:
+                        s3_link = save_to_s3(doc_bytes)
                         
-                        if memo_text:
-                            doc_bytes = create_word_document(memo_text)
-                            
-                            if doc_bytes:
-                                s3_link = save_to_s3(doc_bytes)
-                                
-                                if s3_link:
-                                    st.success("Memo generated successfully!")
-                                    st.markdown(f"[Download Memo]({s3_link})")
-                                else:
-                                    st.error("Failed to save memo to S3.")
-                            else:
-                                st.error("Failed to create Word document.")
+                        if s3_link:
+                            st.success("Memo generated successfully!")
+                            st.markdown(f"[Download Memo]({s3_link})")
                         else:
-                            st.error("Failed to generate memo.")
+                            st.error("Failed to save memo to S3.")
                     else:
-                        st.error("Failed to process input files.")
+                        st.error("Failed to create Word document.")
+                else:
+                    st.error("Failed to generate memo.")
+            else:
+                st.error("Failed to process input files.")
+        
+        if st.button("Start Over"):
+            st.session_state.stage = 'initial'
+            st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
