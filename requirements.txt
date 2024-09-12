@@ -1,0 +1,7 @@
+streamlit
+openai
+boto3
+PyPDF2
+openpyxl
+Pillow
+python-docx
