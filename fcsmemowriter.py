@@ -74,30 +74,53 @@ def get_text_from_response(job_id):
 def main():
     st.title("PDF to Raw Text Converter using AWS Textract")
 
-    # File uploader in Streamlit
-    uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
-    if uploaded_file is not None:
-        # Access the S3 bucket name from secrets
-        bucket_name = st.secrets["aws"]["s3_bucket_name"]
-        object_name = uploaded_file.name
+    # Password protection
+    def check_password():
+        def password_entered():
+            if st.session_state["password"] == "TexasFarmCredit753!":
+                st.session_state["password_correct"] = True
+                del st.session_state["password"]  # Remove password from session state
+            else:
+                st.session_state["password_correct"] = False
 
-        # Upload the PDF file to S3
-        with st.spinner('Uploading file to S3...'):
-            upload_to_s3(uploaded_file, bucket_name, object_name)
+        if "password_correct" not in st.session_state:
+            # First run, show input for password
+            st.text_input("Enter the password", type="password", on_change=password_entered, key="password")
+            return False
+        elif not st.session_state["password_correct"]:
+            # Password not correct, show input + error
+            st.text_input("Enter the password", type="password", on_change=password_entered, key="password")
+            st.error("😕 Password incorrect")
+            return False
+        else:
+            # Password correct
+            return True
 
-        # Start the text detection job
-        with st.spinner('Starting text detection job...'):
-            job_id = start_text_detection(bucket_name, object_name)
+    if check_password():
+        # File uploader in Streamlit
+        uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
+        if uploaded_file is not None:
+            # Access the S3 bucket name from secrets
+            bucket_name = st.secrets["aws"]["s3_bucket_name"]
+            object_name = uploaded_file.name
 
-        # Wait for the job to complete
-        with st.spinner('Processing the document...'):
-            if is_job_complete(job_id):
-                # Retrieve and display the extracted text
-                raw_text = get_text_from_response(job_id)
-                st.success('Text extraction completed!')
-                st.text_area("Extracted Text", raw_text, height=400)
-    else:
-        st.info("Please upload a PDF file to begin.")
+            # Upload the PDF file to S3
+            with st.spinner('Uploading file to S3...'):
+                upload_to_s3(uploaded_file, bucket_name, object_name)
+
+            # Start the text detection job
+            with st.spinner('Starting text detection job...'):
+                job_id = start_text_detection(bucket_name, object_name)
+
+            # Wait for the job to complete
+            with st.spinner('Processing the document...'):
+                if is_job_complete(job_id):
+                    # Retrieve and display the extracted text
+                    raw_text = get_text_from_response(job_id)
+                    st.success('Text extraction completed!')
+                    st.text_area("Extracted Text", raw_text, height=400)
+        else:
+            st.info("Please upload a PDF file to begin.")
 
 if __name__ == "__main__":
     main()
