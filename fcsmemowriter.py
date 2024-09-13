@@ -5,153 +5,99 @@
 
 
 import streamlit as st
-import openai
 import boto3
-from openpyxl import load_workbook
-from PIL import Image
-import io
-import docx
-import os
 import time
-import logging
+from botocore.exceptions import NoCredentialsError
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Initialize boto3 session with credentials from secrets.toml
+session = boto3.Session(
+    aws_access_key_id=st.secrets["aws"]["aws_access_key_id"],
+    aws_secret_access_key=st.secrets["aws"]["aws_secret_access_key"],
+    region_name=st.secrets["aws"]["region_name"]
+)
 
-# Set up configuration
-OPEN_AI_API_KEY = os.getenv("OPEN_AI_API_KEY")
-ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
-AWS_REGION = os.getenv("AWS_REGION")
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
+# Create clients
+s3 = session.client('s3')
+textract = session.client('textract')
 
-# Initialize OpenAI client
-client = openai.Client(api_key=OPEN_AI_API_KEY)
-
-# Initialize AWS S3 client
-s3 = boto3.client('s3', 
-                  aws_access_key_id=AWS_ACCESS_KEY, 
-                  aws_secret_access_key=AWS_SECRET_KEY,
-                  region_name=AWS_REGION)
-
-def process_excel(file, sheet_name=None):
-    if file is None:
-        logging.warning("No Excel file provided")
-        return None
+# Function to upload file to S3
+def upload_to_s3(fileobj, bucket_name, object_name):
     try:
-        logging.info(f"Processing Excel file: {file.name}")
-        workbook = load_workbook(file)
-        sheet = workbook[sheet_name] if sheet_name else workbook.active
-        data = []
-        for row in sheet.iter_rows(values_only=True):
-            data.append(row)
-        logging.info("Excel file processed successfully")
-        return data
-    except Exception as e:
-        logging.error(f"Error processing Excel file: {str(e)}")
-        st.error(f"Error processing Excel file: {str(e)}")
-        return None
+        s3.upload_fileobj(fileobj, bucket_name, object_name)
+        print(f"File uploaded to {bucket_name}/{object_name}")
+    except NoCredentialsError:
+        print("AWS credentials not available.")
 
-def process_supplemental(file):
-    if file is None:
-        return ""
-    try:
-        if file.type == "application/pdf":
-            # You might want to implement PDF processing here if needed
-            return "PDF content placeholder"
-        elif file.type in ["image/jpeg", "image/jpg"]:
-            image = Image.open(file)
-            # Placeholder for image processing - you might want to implement OCR here
-            return "Image content placeholder"
+# Function to start Textract job
+def start_text_detection(bucket_name, object_name):
+    response = textract.start_document_text_detection(
+        DocumentLocation={
+            'S3Object': {
+                'Bucket': bucket_name,
+                'Name': object_name
+            }
+        }
+    )
+    return response['JobId']
+
+# Function to check if the Textract job is complete
+def is_job_complete(job_id):
+    while True:
+        response = textract.get_document_text_detection(JobId=job_id)
+        status = response['JobStatus']
+        if status == 'SUCCEEDED':
+            return True
+        elif status == 'FAILED':
+            raise Exception("Text detection job failed.")
         else:
-            return "Unsupported file type"
-    except Exception as e:
-        logging.error(f"Error processing supplemental file: {str(e)}")
-        st.error(f"Error processing supplemental file: {str(e)}")
-        return None
+            time.sleep(5)  # Wait before polling again
 
-# ... (keep other functions like generate_memo, create_word_document, save_to_s3 as they were) ...
+# Function to retrieve and parse the Textract response
+def get_text_from_response(job_id):
+    response = textract.get_document_text_detection(JobId=job_id)
+    blocks = response['Blocks']
+    text = ''
 
-def update_stage():
-    if 'term_sheet' in st.session_state and 'pricing_table' in st.session_state:
-        if st.session_state.term_sheet is not None and st.session_state.pricing_table is not None:
-            st.session_state.stage = 'ready'
-        else:
-            st.session_state.stage = 'upload'
+    # Handle pagination
+    next_token = response.get('NextToken')
+    while next_token:
+        response = textract.get_document_text_detection(JobId=job_id, NextToken=next_token)
+        blocks.extend(response['Blocks'])
+        next_token = response.get('NextToken')
 
-def reset_state():
-    st.session_state.stage = 'initial'
-    if 'term_sheet' in st.session_state:
-        del st.session_state.term_sheet
-    if 'pricing_table' in st.session_state:
-        del st.session_state.pricing_table
-    if 'supplemental' in st.session_state:
-        del st.session_state.supplemental
+    for block in blocks:
+        if block['BlockType'] == 'LINE':
+            text += block['Text'] + '\n'
+    return text
 
+# Main Streamlit application
 def main():
-    st.title("AI Memo Writer")
-    
-    # Initialize session state
-    if 'stage' not in st.session_state:
-        st.session_state.stage = 'initial'
-    
-    if st.session_state.stage == 'initial':
-        if st.button("Commence"):
-            st.session_state.stage = 'upload'
-    
-    if st.session_state.stage in ['upload', 'ready']:
-        st.file_uploader("Upload Term Sheet (XLSX)", type="xlsx", key="term_sheet", on_change=update_stage)
-        st.file_uploader("Upload Pricing Table (XLSX)", type="xlsx", key="pricing_table", on_change=update_stage)
-        st.file_uploader("Upload Supplemental Document (Optional)", type=["pdf", "jpg", "jpeg"], key="supplemental")
-        
-        if st.session_state.stage == 'ready':
-            if st.button("Generate Memo"):
-                st.session_state.stage = 'generate'
-    
-    if st.session_state.stage == 'generate':
-        with st.spinner("Processing files and generating memo..."):
-            if 'term_sheet' not in st.session_state or st.session_state.term_sheet is None:
-                st.error("Term sheet is missing. Please upload it and try again.")
-                st.session_state.stage = 'upload'
-                return
+    st.title("PDF to Raw Text Converter using AWS Textract")
 
-            if 'pricing_table' not in st.session_state or st.session_state.pricing_table is None:
-                st.error("Pricing table is missing. Please upload it and try again.")
-                st.session_state.stage = 'upload'
-                return
+    # File uploader in Streamlit
+    uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
+    if uploaded_file is not None:
+        # Access the S3 bucket name from secrets
+        bucket_name = st.secrets["aws"]["s3_bucket_name"]
+        object_name = uploaded_file.name
 
-            term_sheet_data = process_excel(st.session_state.term_sheet)
-            pricing_data = process_excel(st.session_state.pricing_table)
-            supplemental_text = process_supplemental(st.session_state.supplemental if 'supplemental' in st.session_state else None)
-            
-            if term_sheet_data and pricing_data:
-                # Convert Excel data to string format for memo generation
-                term_sheet_text = "\n".join([", ".join(map(str, row)) for row in term_sheet_data])
-                pricing_text = "\n".join([", ".join(map(str, row)) for row in pricing_data])
-                
-                memo_text = generate_memo(term_sheet_text, pricing_text, supplemental_text)
-                
-                if memo_text:
-                    doc_bytes = create_word_document(memo_text)
-                    
-                    if doc_bytes:
-                        s3_link = save_to_s3(doc_bytes)
-                        
-                        if s3_link:
-                            st.success("Memo generated successfully!")
-                            st.markdown(f"[Download Memo]({s3_link})")
-                        else:
-                            st.error("Failed to save memo to S3.")
-                    else:
-                        st.error("Failed to create Word document.")
-                else:
-                    st.error("Failed to generate memo.")
-            else:
-                st.error("Failed to process input files.")
-        
-        if st.button("Start Over"):
-            reset_state()
+        # Upload the PDF file to S3
+        with st.spinner('Uploading file to S3...'):
+            upload_to_s3(uploaded_file, bucket_name, object_name)
+
+        # Start the text detection job
+        with st.spinner('Starting text detection job...'):
+            job_id = start_text_detection(bucket_name, object_name)
+
+        # Wait for the job to complete
+        with st.spinner('Processing the document...'):
+            if is_job_complete(job_id):
+                # Retrieve and display the extracted text
+                raw_text = get_text_from_response(job_id)
+                st.success('Text extraction completed!')
+                st.text_area("Extracted Text", raw_text, height=400)
+    else:
+        st.info("Please upload a PDF file to begin.")
 
 if __name__ == "__main__":
     main()
