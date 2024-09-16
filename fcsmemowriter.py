@@ -77,7 +77,7 @@ def main():
     # Password protection
     def check_password():
         def password_entered():
-            if st.session_state["password"] == "TexasFarmCredit753!":
+            if st.session_state["password"] == st.secrets["passwords"]["app_password"]:
                 st.session_state["password_correct"] = True
                 del st.session_state["password"]  # Remove password from session state
             else:
