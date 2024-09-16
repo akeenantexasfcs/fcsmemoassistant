@@ -70,43 +70,44 @@ def get_text_from_response(job_id):
             text += block['Text'] + '\n'
     return text
 
+# Password protection
+def check_password():
+    def password_entered():
+        if st.session_state["password"] == st.secrets["passwords"]["app_password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Remove password from session state
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show input for password
+        st.text_input("Enter the password", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password not correct, show input + error
+        st.text_input("Enter the password", type="password", on_change=password_entered, key="password")
+        st.error("😕 Password incorrect")
+        return False
+    else:
+        # Password correct
+        return True
+
 # Main Streamlit application
 def main():
     st.title("PDF to Raw Text Converter using AWS Textract")
 
-    # Password protection
-    def check_password():
-        def password_entered():
-            if st.session_state["password"] == st.secrets["passwords"]["app_password"]:
-                st.session_state["password_correct"] = True
-                del st.session_state["password"]  # Remove password from session state
-            else:
-                st.session_state["password_correct"] = False
-
-        if "password_correct" not in st.session_state:
-            # First run, show input for password
-            st.text_input("Enter the password", type="password", on_change=password_entered, key="password")
-            return False
-        elif not st.session_state["password_correct"]:
-            # Password not correct, show input + error
-            st.text_input("Enter the password", type="password", on_change=password_entered, key="password")
-            st.error("😕 Password incorrect")
-            return False
-        else:
-            # Password correct
-            return True
-
     if check_password():
-        # File uploader in Streamlit
-        uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
-        if uploaded_file is not None:
+        # Section 1
+        st.header("PDF to Raw Text Converter using AWS Textract")
+        uploaded_file1 = st.file_uploader("Upload a PDF file", type="pdf", key="uploader1")
+        if uploaded_file1 is not None:
             # Access the S3 bucket name from secrets
             bucket_name = st.secrets["aws"]["s3_bucket_name"]
-            object_name = uploaded_file.name
+            object_name = uploaded_file1.name
 
             # Upload the PDF file to S3
             with st.spinner('Uploading file to S3...'):
-                upload_to_s3(uploaded_file, bucket_name, object_name)
+                upload_to_s3(uploaded_file1, bucket_name, object_name)
 
             # Start the text detection job
             with st.spinner('Starting text detection job...'):
@@ -121,6 +122,34 @@ def main():
                     st.text_area("Extracted Text", raw_text, height=400)
         else:
             st.info("Please upload a PDF file to begin.")
+
+        st.markdown("---")  # Separator between sections
+
+        # Section 2
+        st.header("PDF to Raw Text Converter II - [Suggested: Marketing Presentation]")
+        uploaded_file2 = st.file_uploader("Upload a second PDF file", type="pdf", key="uploader2")
+        if uploaded_file2 is not None:
+            # Access the S3 bucket name from secrets
+            bucket_name = st.secrets["aws"]["s3_bucket_name"]
+            object_name = uploaded_file2.name
+
+            # Upload the PDF file to S3
+            with st.spinner('Uploading second file to S3...'):
+                upload_to_s3(uploaded_file2, bucket_name, object_name)
+
+            # Start the text detection job
+            with st.spinner('Starting text detection job for the second file...'):
+                job_id = start_text_detection(bucket_name, object_name)
+
+            # Wait for the job to complete
+            with st.spinner('Processing the second document...'):
+                if is_job_complete(job_id):
+                    # Retrieve and display the extracted text
+                    raw_text = get_text_from_response(job_id)
+                    st.success('Second text extraction completed!')
+                    st.text_area("Extracted Text from Second File", raw_text, height=400)
+        else:
+            st.info("Please upload a second PDF file to begin.")
 
 if __name__ == "__main__":
     main()
