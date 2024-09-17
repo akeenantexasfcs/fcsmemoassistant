@@ -11,6 +11,7 @@ from botocore.exceptions import NoCredentialsError
 import pandas as pd
 import openai
 from io import BytesIO
+import logging
 
 # Initialize boto3 session with credentials from secrets.toml
 session = boto3.Session(
@@ -19,7 +20,7 @@ session = boto3.Session(
     region_name=st.secrets["aws"]["region_name"]
 )
 
-# OpenAI API key and assistant id
+# OpenAI API key
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # Create clients
@@ -100,6 +101,17 @@ def check_password():
 
 # Function to generate memo using OpenAI Assistant
 def generate_memo(marketing_presentation, term_sheet, pricing):
+    import logging
+
+    # Initialize the OpenAI client
+    # Note: Ensure you have the correct version of the OpenAI library that supports beta features
+    client = openai.OpenAI()
+
+    # Get assistant_id and thread_id from st.secrets
+    assistant_id = st.secrets["openai"]["assistant_id"]
+    thread_id = st.secrets["openai"]["thread_id"]
+
+    # Prepare the prompt
     prompt = f"""
     Generate a memo for the executive loan committee based on the following:
 
@@ -108,12 +120,41 @@ def generate_memo(marketing_presentation, term_sheet, pricing):
     Pricing Details: {pricing or 'Not Provided'}
     """
 
-    response = openai.Completion.create(
-        model="gpt-4o-mini",  # Specify the model to use
-        prompt=prompt,
-        max_tokens=500
+    # Create a message in the thread
+    message = client.beta.threads.messages.create(
+        thread_id=thread_id, role="user", content=prompt
     )
-    return response['choices'][0]['text']
+
+    # Create a run with the assistant
+    run = client.beta.threads.runs.create(
+        thread_id=thread_id,
+        assistant_id=assistant_id,
+        model="gpt-4o-mini"
+    )
+
+    # Wait for the run to complete
+    def wait_for_run_completion(client, thread_id, run_id, sleep_interval=5):
+        while True:
+            try:
+                run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
+                if run_status.completed_at:
+                    # Get messages here once Run is completed
+                    messages = client.beta.threads.messages.list(thread_id=thread_id)
+                    # Find the assistant's response
+                    for msg in reversed(messages.data):
+                        if msg.role == 'assistant':
+                            response = msg.content[0].text.value
+                            return response
+                    break
+                else:
+                    time.sleep(sleep_interval)
+            except Exception as e:
+                logging.error(f"An error occurred: {e}")
+                break
+
+    # Get the assistant's response
+    memo_text = wait_for_run_completion(client, thread_id, run.id)
+    return memo_text
 
 # Main Streamlit application
 def main():
@@ -168,12 +209,15 @@ def main():
 
             # Generate memo with what is available
             memo_text = generate_memo(
-                marketing_presentation_text, 
-                term_sheet_text, 
+                marketing_presentation_text,
+                term_sheet_text,
                 pricing_text
             )
-            st.success("Memo generated successfully!")
-            st.text_area("Generated Memo", memo_text, height=300)
+            if memo_text:
+                st.success("Memo generated successfully!")
+                st.text_area("Generated Memo", memo_text, height=300)
+            else:
+                st.error("Failed to generate memo. Please try again.")
 
 if __name__ == "__main__":
     main()
