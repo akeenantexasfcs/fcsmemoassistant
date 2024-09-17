@@ -12,6 +12,9 @@ import pandas as pd
 import openai
 from io import BytesIO
 
+# Import OpenAI error classes
+from openai.error import OpenAIError, InvalidRequestError, APIError, RateLimitError
+
 # Ensure the OpenAI library is up to date
 # Run: pip install --upgrade openai
 
@@ -124,8 +127,20 @@ def generate_memo(marketing_presentation, term_sheet, pricing):
             temperature=0.7,
         )
         return response['choices'][0]['message']['content'].strip()
-    except openai.error.OpenAIError as e:
-        st.error(f"An error occurred: {e}")
+    except InvalidRequestError as e:
+        st.error(f"Invalid request: {e}")
+        return None
+    except RateLimitError as e:
+        st.error(f"Rate limit exceeded: {e}")
+        return None
+    except APIError as e:
+        st.error(f"API error: {e}")
+        return None
+    except OpenAIError as e:
+        st.error(f"An OpenAI error occurred: {e}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {e}")
         return None
 
 # Main Streamlit application
