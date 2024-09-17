@@ -12,6 +12,9 @@ import pandas as pd
 import openai
 from io import BytesIO
 
+# Ensure the OpenAI library is up to date
+# Run: pip install --upgrade openai
+
 # Initialize boto3 session with credentials from secrets.toml
 session = boto3.Session(
     aws_access_key_id=st.secrets["aws"]["aws_access_key_id"],
@@ -19,10 +22,10 @@ session = boto3.Session(
     region_name=st.secrets["aws"]["region_name"]
 )
 
-# OpenAI API key and assistant id
+# OpenAI API key
 openai.api_key = st.secrets["openai"]["api_key"]
 
-# Create clients
+# Create AWS clients
 s3 = session.client('s3')
 textract = session.client('textract')
 
@@ -108,12 +111,22 @@ def generate_memo(marketing_presentation, term_sheet, pricing):
     Pricing Details: {pricing or 'Not Provided'}
     """
 
-    response = openai.Completion.create(
-        model="gpt-4o-mini",  # Specify the model to use
-        prompt=prompt,
-        max_tokens=500
-    )
-    return response['choices'][0]['text']
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",  # Use "gpt-3.5-turbo" if you don't have access to GPT-4
+            messages=[
+                {"role": "system", "content": "You are an assistant that helps generate memos."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            n=1,
+            stop=None,
+            temperature=0.7,
+        )
+        return response['choices'][0]['message']['content'].strip()
+    except openai.error.OpenAIError as e:
+        st.error(f"An error occurred: {e}")
+        return None
 
 # Main Streamlit application
 def main():
@@ -172,8 +185,11 @@ def main():
                 term_sheet_text, 
                 pricing_text
             )
-            st.success("Memo generated successfully!")
-            st.text_area("Generated Memo", memo_text, height=300)
+            if memo_text:
+                st.success("Memo generated successfully!")
+                st.text_area("Generated Memo", memo_text, height=300)
+            else:
+                st.error("Failed to generate memo.")
 
 if __name__ == "__main__":
     main()
