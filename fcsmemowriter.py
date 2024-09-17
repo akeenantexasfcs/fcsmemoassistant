@@ -12,12 +12,6 @@ import pandas as pd
 import openai
 from io import BytesIO
 
-# Import OpenAI error classes
-from openai.error import OpenAIError, InvalidRequestError, APIError, RateLimitError
-
-# Ensure the OpenAI library is up to date
-# Run: pip install --upgrade openai
-
 # Initialize boto3 session with credentials from secrets.toml
 session = boto3.Session(
     aws_access_key_id=st.secrets["aws"]["aws_access_key_id"],
@@ -25,10 +19,10 @@ session = boto3.Session(
     region_name=st.secrets["aws"]["region_name"]
 )
 
-# OpenAI API key
+# OpenAI API key and assistant id
 openai.api_key = st.secrets["openai"]["api_key"]
 
-# Create AWS clients
+# Create clients
 s3 = session.client('s3')
 textract = session.client('textract')
 
@@ -114,34 +108,12 @@ def generate_memo(marketing_presentation, term_sheet, pricing):
     Pricing Details: {pricing or 'Not Provided'}
     """
 
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",  # Use "gpt-3.5-turbo" if you don't have access to GPT-4
-            messages=[
-                {"role": "system", "content": "You are an assistant that helps generate memos."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            n=1,
-            stop=None,
-            temperature=0.7,
-        )
-        return response['choices'][0]['message']['content'].strip()
-    except InvalidRequestError as e:
-        st.error(f"Invalid request: {e}")
-        return None
-    except RateLimitError as e:
-        st.error(f"Rate limit exceeded: {e}")
-        return None
-    except APIError as e:
-        st.error(f"API error: {e}")
-        return None
-    except OpenAIError as e:
-        st.error(f"An OpenAI error occurred: {e}")
-        return None
-    except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
-        return None
+    response = openai.Completion.create(
+        model="gpt-4o-mini",  # Specify the model to use
+        prompt=prompt,
+        max_tokens=500
+    )
+    return response['choices'][0]['text']
 
 # Main Streamlit application
 def main():
@@ -200,11 +172,8 @@ def main():
                 term_sheet_text, 
                 pricing_text
             )
-            if memo_text:
-                st.success("Memo generated successfully!")
-                st.text_area("Generated Memo", memo_text, height=300)
-            else:
-                st.error("Failed to generate memo.")
+            st.success("Memo generated successfully!")
+            st.text_area("Generated Memo", memo_text, height=300)
 
 if __name__ == "__main__":
     main()
